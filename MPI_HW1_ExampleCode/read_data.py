@@ -1,6 +1,7 @@
 from time import sleep
 import board
 from adafruit_as7341 import AS7341
+import datetime
 
 i2c = board.I2C()
 sensor = AS7341(i2c)
@@ -10,6 +11,7 @@ def bar_graph(read_value):
     return "[%5d] " % read_value + (scaled * "*")
 
 while True:
+    print("Date %s" % datetime.datetime.now())
     print("F1 - 415nm/Violet  %s" % bar_graph(sensor.channel_415nm))
     print("F2 - 445nm//Indigo    %s" % bar_graph(sensor.channel_445nm))
     print("F3 - 480nm/Blue    %s" % bar_graph(sensor.channel_480nm))
