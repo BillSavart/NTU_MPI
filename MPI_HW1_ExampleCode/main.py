@@ -7,6 +7,9 @@ from datetime import datetime
 from adafruit_as7341 import AS7341
 from WiFiScanner import WiFiScanner
 from typing import Dict, Any, Optional
+from bleak import BleakScanner
+from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s %(levelname)s]: %(message)s')
 logger = logging.getLogger(__name__)
@@ -18,7 +21,7 @@ BASE_FOLDER = Path("./data/")
 MODALITY = {
   "light": "light_data.csv",
   "wifi": "wifi_data.csv",
-  # "ble": "ble_data.csv",
+  "ble": "ble_data.csv",
 }
 
 BASE_FOLDER.mkdir(exist_ok=True)
@@ -101,6 +104,38 @@ async def read_wifi() -> Optional[Dict[str, int]]:
     logger.error(f"Error reading WiFi data: {e}")
     return None
 
+async def read_ble() -> Optional[Dict[str, int]]:
+  """Read BLE signal strength data."""
+  try:
+    devices = await BleakScanner.discover(timeout=5.0)
+    ble_data = {}
+    for device in devices:
+      # 在 Bleak 1.x，discover() 回傳 (device, advertisement_data) tuple
+      if isinstance(device, tuple) and len(device) == 2:
+        ble_device, adv_data = device
+        rssi = getattr(adv_data, "rssi", None)
+        if rssi is not None:
+          ble_data[ble_device.address] = rssi
+      else:
+        # 兼容未來 Bleak 版本
+        rssi = getattr(device, "rssi", None)
+        if rssi is not None:
+          ble_data[device.address] = rssi
+
+    if ble_data:
+      logger.info(f"Detected {len(ble_data)} BLE devices.")
+    else:
+      if devices:
+        logger.warning("Devices detected but no RSSI data available.")
+      else:
+        logger.info("No BLE devices detected.")
+
+    return ble_data
+
+  except Exception as e:
+    logger.error(f"Error scanning BLE: {e}")
+    return None
+
 def add_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
   """Add timestamp and coordinates to data."""
   if data is None:
@@ -134,6 +169,15 @@ async def collect_reading(collection_count: int) -> Dict[str, bool]:
     logger.debug(f"WiFi data collected ({len(wifi_data)-3} networks)")
   else:
     results['wifi'] = False
+
+  # Read BLE data
+  ble_data = await read_ble()
+  if ble_data is not None:
+    ble_data = add_metadata(ble_data)
+    results['ble'] = appendData(MODALITY["ble"], ble_data)
+    logger.debug(f"BLE data collected ({len(ble_data)-3} devices)")
+  else:
+    results['ble'] = False
   
   success_count = sum(results.values())
   logger.info(f"Reading #{collection_count}: {success_count}/{len(results)} sensors successful")
