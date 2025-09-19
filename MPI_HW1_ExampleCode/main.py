@@ -105,35 +105,30 @@ async def read_wifi() -> Optional[Dict[str, int]]:
     return None
 
 async def read_ble() -> Optional[Dict[str, int]]:
-  """Read BLE signal strength data."""
+  """Read BLE RSSI via callback scanning for a short window."""
   try:
-    devices = await BleakScanner.discover(timeout=5.0)
-    ble_data = {}
-    for device in devices:
-      # 在 Bleak 1.x，discover() 回傳 (device, advertisement_data) tuple
-      if isinstance(device, tuple) and len(device) == 2:
-        ble_device, adv_data = device
-        rssi = getattr(adv_data, "rssi", None)
-        if rssi is not None:
-          ble_data[ble_device.address] = rssi
-      else:
-        # 兼容未來 Bleak 版本
-        rssi = getattr(device, "rssi", None)
-        if rssi is not None:
-          ble_data[device.address] = rssi
+    latest_rssi: Dict[str, int] = {}
 
-    if ble_data:
-      logger.info(f"Detected {len(ble_data)} BLE devices.")
+    def on_detect(device, adv):
+      rssi = getattr(adv, "rssi", None)
+      if rssi is not None:
+        latest_rssi[device.address] = int(rssi)
+
+    scanner = BleakScanner(detection_callback=on_detect, adapter="hci0")
+    await scanner.start()
+    try:
+      await asyncio.sleep(5)
+    finally:
+      await scanner.stop()
+
+    if latest_rssi:
+      return latest_rssi
     else:
-      if devices:
-        logger.warning("Devices detected but no RSSI data available.")
-      else:
-        logger.info("No BLE devices detected.")
-
-    return ble_data
+      logger.warning("Error reading RSSI data.")
+      return {}
 
   except Exception as e:
-    logger.error(f"Error scanning BLE: {e}")
+    logger.error(f"Error scanning BLE (callback): {e}")
     return None
 
 def add_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
