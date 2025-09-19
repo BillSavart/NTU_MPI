@@ -33,6 +33,14 @@ except Exception as e:
   lightSensor = None
   logger.error(f"Failed to initialize light sensor: {e}")
 
+ble_rssi: Dict[str, int] = {}
+
+def on_detect(device, adv):
+  rssi = getattr(adv, "rssi", None)
+  if rssi is not None:
+    ble_rssi[device.address] = int(rssi)
+
+bleScanner = BleakScanner(detection_callback=on_detect, adapter="hci0")
 wifiScanner = WiFiScanner(interface='wlan0', scan_interval=WIFI_SCAN_INTERVAL)
 
 def loadData(file: str) -> pd.DataFrame:
@@ -105,27 +113,17 @@ async def read_wifi() -> Optional[Dict[str, int]]:
     return None
 
 async def read_ble() -> Optional[Dict[str, int]]:
-  """Read BLE RSSI via callback scanning for a short window."""
-  try:
-    latest_rssi: Dict[str, int] = {}
+  """Read BLE RSSI data."""
+  try: 
+    await bleScanner.start()
+    await asyncio.sleep(5)
+    await bleScanner.stop()
 
-    def on_detect(device, adv):
-      rssi = getattr(adv, "rssi", None)
-      if rssi is not None:
-        latest_rssi[device.address] = int(rssi)
-
-    scanner = BleakScanner(detection_callback=on_detect, adapter="hci0")
-    await scanner.start()
-    try:
-      await asyncio.sleep(5)
-    finally:
-      await scanner.stop()
-
-    if latest_rssi:
-      return latest_rssi
-    else:
-      logger.warning("Error reading RSSI data.")
+    if not ble_rssi:
+      logger.warning("No BLE devices detected")
       return {}
+
+    return ble_rssi
 
   except Exception as e:
     logger.error(f"Error scanning BLE (callback): {e}")
